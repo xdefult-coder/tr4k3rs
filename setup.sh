@@ -1,31 +1,45 @@
 #!/bin/bash
-set -e
-APP_NAME="kali-location-server"
-BUILD_OUT="./server_bin"
-echo "[*] Building Go binaries..."
-go mod tidy
-go build -o ${BUILD_OUT} server.go
 
-echo "[*] Installing binary to /usr/local/bin/${APP_NAME}"
-sudo install -m 0755 ${BUILD_OUT} /usr/local/bin/${APP_NAME}
+echo ""
+echo "[*] Kali Location Tracker Installer"
+echo "--------------------------------------"
+echo ""
 
-echo "[*] Installing viewer and static files to /opt/kali-location"
-sudo mkdir -p /opt/kali-location
-sudo cp -r viewer.html static /opt/kali-location/
-sudo chown -R root:root /opt/kali-location
-
-# systemd unit
+INSTALL_DIR="/opt/kali-location"
+BIN_SERVER="/usr/local/bin/kali-location-server"
+BIN_CLIENT="/usr/local/bin/kali-location-client"
 SERVICE_FILE="/etc/systemd/system/kali-location.service"
-echo "[*] Creating systemd service: ${SERVICE_FILE}"
-sudo tee ${SERVICE_FILE} > /dev/null <<'EOF'
+
+echo "[*] Moving into project directory..."
+cd "$INSTALL_DIR" || { echo "[!] Folder not found: $INSTALL_DIR"; exit 1; }
+
+echo "[*] Checking Go module..."
+if [ ! -f go.mod ]; then
+    echo "[*] go.mod not found — creating..."
+    go mod init kali-location
+    go mod tidy
+else
+    echo "[*] go.mod found — running tidy..."
+    go mod tidy
+fi
+
+echo "[*] Building Go binaries..."
+go build -o "$BIN_SERVER" server.go || { echo "[!] Build failed (server.go)"; exit 1; }
+go build -o "$BIN_CLIENT" client.go || { echo "[!] Build failed (client.go)"; exit 1; }
+
+chmod +x "$BIN_SERVER"
+chmod +x "$BIN_CLIENT"
+
+echo "[*] Installing Systemd service..."
+cat <<EOF > "$SERVICE_FILE"
 [Unit]
 Description=Kali Location Tracker
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/kali-location-server
-WorkingDirectory=/opt/kali-location
+ExecStart=$BIN_SERVER
+WorkingDirectory=$INSTALL_DIR
 Restart=always
 RestartSec=5
 User=root
@@ -34,8 +48,19 @@ User=root
 WantedBy=multi-user.target
 EOF
 
-echo "[*] Reloading systemd and enabling service..."
-sudo systemctl daemon-reload
-sudo systemctl enable kali-location.service
-sudo systemctl start kali-location.service
-echo "[+] Installation complete. Service started."
+echo "[*] Reloading systemd..."
+systemctl daemon-reload
+
+echo "[*] Enabling service..."
+systemctl enable kali-location.service
+
+echo "[*] Starting service..."
+systemctl start kali-location.service
+
+echo ""
+echo "[✓] Installation complete!"
+echo "[✓] Server running at: http://localhost:8080"
+echo ""
+echo "Use this command to check logs:"
+echo "    journalctl -u kali-location -f"
+echo ""
