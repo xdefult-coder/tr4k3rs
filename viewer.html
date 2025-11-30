@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Kali Location Live Viewer</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <style>body{margin:0} #map{height:100vh}</style>
+</head>
+<body>
+<div id="map"></div>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+const urlParams = new URLSearchParams(window.location.search);
+const phone = urlParams.get('phone') || 'kali-device';
+
+const map = L.map('map').setView([20.5937,78.9629],5);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
+let poly = L.polyline([], {weight:3}).addTo(map);
+let marker = null;
+
+async function loadHistory(){
+  const res = await fetch('/get/' + encodeURIComponent(phone));
+  if(!res.ok){ console.error('history fail'); return; }
+  const j = await res.json();
+  const locs = j.locations || [];
+  const pts = locs.map(l=>[l.lat,l.lon]);
+  poly.setLatLngs(pts);
+  if(pts.length){
+    if(marker) map.removeLayer(marker);
+    const p = pts[pts.length-1];
+    marker = L.marker(p).addTo(map);
+    map.fitBounds(poly.getBounds().pad(0.5));
+  }
+}
+loadHistory();
+
+// WebSocket live updates
+const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+const ws = new WebSocket(proto + '://' + location.host + '/ws');
+ws.onmessage = (ev) => {
+  const loc = JSON.parse(ev.data);
+  if(loc.phone !== phone) return;
+  const p = [loc.lat, loc.lon];
+  poly.addLatLng(p);
+  if(marker) map.removeLayer(marker);
+  marker = L.marker(p).addTo(map);
+};
+</script>
+</body>
+</html>
